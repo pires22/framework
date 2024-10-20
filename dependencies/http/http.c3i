@@ -1,0 +1,60 @@
+module http;
+import std::core::dstring;
+import std::core::string;
+import std::collections::list;
+import std::net::tcp;
+import std::collections::map;
+import libc;
+import sv;
+
+struct Request {
+    String method;
+    String resource;
+    String version;
+    Map(<String, String>)* headers;
+    Map(<String, String>)* params;
+    Map(<String, String>)* query_params;
+    DString body;
+}
+
+struct Response {
+    TcpSocket* client;
+    bool sent;
+    String version;
+    uint status_code;
+    String status_code_text;
+    Map(<String, String>) headers;
+    String body;
+}
+
+extern fn Request* new_request();
+
+extern fn Response* new_response(TcpSocket* client);
+
+extern fn void Request.parse_resource(&self, String uri);
+
+extern fn uint hex_to_char(uint hex1, uint hex2);
+
+extern fn uint hex_value(uint c);
+
+extern fn void Request.parse_metadata(&self, StringView* sv);
+
+extern fn void Request.parse_headers(&self, StringView* headers);
+
+extern fn void Request.parse_body(&self, DString body);
+
+extern fn bool Request.should_close_client(&self);
+
+extern fn bool Request.check_version_and_header_host_compliant(&self);
+
+extern fn void Request.parse_query_string(&self, StringView query_string);
+
+extern fn String Request.get_param(&self, String key);
+
+extern fn String Request.get_query_param(&self, String key);
+
+extern fn void Response.send(&self, String body = "");
+
+extern fn Response* Response.status(&self, uint status);
+
+extern fn Response* Response.make_response(&self, String body);

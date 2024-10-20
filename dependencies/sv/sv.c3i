@@ -1,0 +1,16 @@
+module sv;
+
+struct StringView {
+    char* data;
+    usz length;
+}
+
+extern fn StringView create_view(String str, usz length);
+
+extern fn StringView create_from_string_view(StringView* sv);
+
+extern fn usz StringView.count_occurrences(&self, char delimiter);
+
+extern fn StringView StringView.chop_by_delimiter(&self, char delimiter);
+
+extern fn String StringView.to_string(&self);
