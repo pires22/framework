@@ -2,7 +2,6 @@ module framework;
 import std::io;
 import std::net;
 import std::net::tcp;
-import std::core::mem;
 import std::thread;
 import libc;
 import http;
@@ -29,13 +28,13 @@ struct RouteGroup {
 }
 
 fn Framework* new_framework() {
-    Framework* framework = std::core::mem::new(Framework);
+    Framework* framework = mem::new(Framework);
     framework.router = router::new_router();
     return framework;
 }
 
 fn RouteGroup* Framework.new_route_group(&self, String prefix) {
-    RouteGroup* route_group = std::core::mem::new(RouteGroup);
+    RouteGroup* route_group = mem::new(RouteGroup);
     route_group.prefix = prefix;
     route_group.framework = self;
     return route_group;
@@ -81,17 +80,17 @@ fn void Framework.run(&self, String host = "localhost", int port = 8080) {
         }
         Thread thread;
 
-        ClientArgs* args = (ClientArgs*)std::core::mem::new(ClientArgs);
+        ClientArgs* args = (ClientArgs*)mem::new(ClientArgs);
         args.router = self.router;
         args.client = client_socket;
 
         if (catch reason = thread.create(&handle_client, (void*)args)) {
             io::printfn("Thread creation failed: %s", reason);
-            std::core::mem::free(args);
+            mem::free(args);
         } else {
             if (catch r = std::thread::Thread.detach(thread)) {
                 io::printfn("Thread detach failed: %s", r);
-                std::core::mem::free(args);
+                mem::free(args);
             }
         }
     }
@@ -153,7 +152,7 @@ fn int handle_client(void* arg) {
                             if (catch r = client.close()) {
                                 io::printfn("failed to close client socket: %s", r);
                             }
-                            std::core::mem::free(args);
+                            mem::free(args);
                             return 1;
                         }
 
@@ -163,14 +162,14 @@ fn int handle_client(void* arg) {
                     if (catch r = client.close()) {
                         io::printfn("failed to close client socket: %s", r);
                     }
-                    std::core::mem::free(args);
+                    mem::free(args);
                     return 1;
                 } else {
                     io::printfn("poll error");
                     if (catch r = client.close()) {
                         io::printfn("failed to close client socket: %s", r);
                     }
-                    std::core::mem::free(args);
+                    mem::free(args);
                     return 1;
                 }
             }
@@ -193,6 +192,6 @@ fn int handle_client(void* arg) {
     }
 
     body.free();
-    std::core::mem::free(args);
+    mem::free(args);
     return 0;
 }

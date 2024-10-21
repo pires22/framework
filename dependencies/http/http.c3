@@ -31,18 +31,18 @@ struct Response {
 }
 
 fn Request* new_request() {
-    Request* request = std::core::mem::new(Request);
-    request.query_params = std::core::mem::new(Map(<String, String>));
-    request.params = std::core::mem::new(Map(<String, String>));
-    request.headers = std::core::mem::new(Map(<String, String>));
+    Request* request = mem::new(Request);
+    request.query_params = mem::new(Map(<String, String>));
+    request.params = mem::new(Map(<String, String>));
+    request.headers = mem::new(Map(<String, String>));
 
     return request;
 }
 
 fn Response* new_response(TcpSocket* client) {
-    Response* response = std::core::mem::new(Response);
+    Response* response = mem::new(Response);
     response.client = client;
-    response.headers = std::core::mem::new(Map(<String, String>));
+    response.headers = mem::new(Map(<String, String>));
 
     return response;
 }
@@ -232,12 +232,12 @@ fn void free_request(Request* request) {
     request.headers.free();
     request.query_params.free();
 
-    std::core::mem::free(request);
+    mem::free(request);
 }
 
 fn void free_response(Response* response) {
     response.headers.free();
-    std::core::mem::free(response);
+    mem::free(response);
 }
 
 fn DString uint_to_string(uint value) {

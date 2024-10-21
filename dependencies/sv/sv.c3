@@ -5,18 +5,18 @@ struct StringView {
     usz length;
 }
 
-fn StringView create_view(String str, usz length) @export("sv_create_view") {
+fn StringView create_view(String str, usz length) {
     return StringView { .data = (char*)str, .length = length };
 }
 
-fn StringView create_from_string_view(StringView* sv) @export("sv_create_from_string_view") {
+fn StringView create_from_string_view(StringView* sv) {
     return StringView {
         .data = sv.data,
         .length = sv.length
     };
 }
 
-fn usz StringView.count_occurrences(&self, char delimiter) @export("sv_count_occurrences") {
+fn usz StringView.count_occurrences(&self, char delimiter) {
     usz i = 0;
     usz count = 0;
     while (i < self.length) {
@@ -28,7 +28,7 @@ fn usz StringView.count_occurrences(&self, char delimiter) @export("sv_count_occ
     return count;
 }
 
-fn StringView StringView.chop_by_delimiter(&self, char delimiter) @export("sv_chop_by_delimiter") {
+fn StringView StringView.chop_by_delimiter(&self, char delimiter) {
     usz i = 0;
     while (i < self.length && self.data[i] != delimiter) {
         i++;
@@ -46,6 +46,6 @@ fn StringView StringView.chop_by_delimiter(&self, char delimiter) @export("sv_ch
     return result;
 }
 
-fn String StringView.to_string(&self) @export("sv_to_string") {
+fn String StringView.to_string(&self) {
 	return (String)self.data[:self.length];
 }

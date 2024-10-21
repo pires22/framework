@@ -2,7 +2,6 @@ module router;
 import std::collections::list;
 import std::collections::map;
 import std::io;
-import std::core::mem;
 import std::net::tcp;
 import http;
 import sv;
@@ -18,7 +17,7 @@ struct Router {
 }
 
 fn Router* new_router() {
-    Router* router = std::core::mem::new(Router);
+    Router* router = mem::new(Router);
     return router;
 }
 
@@ -36,7 +35,7 @@ fn void Router.add_route(&self, String method, String path, Handler handler) {
         return;
 	}
 
-    Route* route = std::core::mem::new(Route);
+    Route* route = mem::new(Route);
     route.method = method;
     route.path = path.strip_end("/");
     route.handler = handler;
