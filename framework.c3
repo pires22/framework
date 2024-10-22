@@ -15,7 +15,7 @@ def PathHandler = fn void (Framework* app);
 
 struct ClientArgs {
     Router* router;
-    TcpSocket client;
+    TcpSocket* client;
 }
 
 struct Framework {
@@ -82,14 +82,14 @@ fn void Framework.run(&self, String host = "localhost", int port = 8080) {
 
         ClientArgs* args = (ClientArgs*)mem::new(ClientArgs);
         args.router = self.router;
-        args.client = client_socket;
+        args.client = &client_socket;
 
         if (catch reason = thread.create(&handle_client, (void*)args)) {
-            io::printfn("Thread creation failed: %s", reason);
+            io::printfn("thread creation failed: %s", reason);
             mem::free(args);
         } else {
             if (catch r = std::thread::Thread.detach(thread)) {
-                io::printfn("Thread detach failed: %s", r);
+                io::printfn("thread detach failed: %s", r);
                 mem::free(args);
             }
         }
@@ -99,7 +99,7 @@ fn void Framework.run(&self, String host = "localhost", int port = 8080) {
 fn void sigint_handler(int sig_num) 
 {
     keepRunning = false;
-    io::printn("stopping");
+    io::printn("stopping application");
     if (catch reason = server_socket.close()) {
         io::printfn("failed to close server socket: %s", reason);
     }
@@ -109,51 +109,54 @@ fn void sigint_handler(int sig_num)
 fn int handle_client(void* arg) {
     ClientArgs* args = (ClientArgs*)arg;
     Router* router = args.router;
-    TcpSocket client = args.client;
+    TcpSocket* client = args.client;
     char[1024] buffer;
-    bool keep_reading_buffer = true;
-    Request* request;
-    DString body = std::core::dstring::new();
-    bool should_close = false;
+    DString body = dstring::new();
+    bool read_buffer = true;
+    bool should_close_connection = false;
 
-    while(!should_close) {
-        while (keep_reading_buffer) {
-            Poll[4] poll_set;
-            poll_set[0].socket = client.sock;
-            poll_set[0].events = std::net::SUBSCRIBE_ANY_READ;
-
+    while(!should_close_connection) {
+        Request* request = null;
+        Poll[4] poll_set;
+        poll_set[0].socket = client.sock;
+        poll_set[0].events = std::net::SUBSCRIBE_ANY_READ;
+        while (read_buffer) {
             if (try poll_result = std::net::poll_ms(&poll_set, 30000)) {
                 if (poll_result > 0) {
                     if (poll_set[0].revents & std::net::os::POLLIN) {
                         if (try usz read_size = client.read(&buffer)) {
-                            DString payload = std::core::dstring::new_with_capacity(read_size);
-                            if (try payload.write(&buffer)) {
-                                StringView request_data = sv::create_view(payload.str_view(), read_size);
-                                if (request == null) {
-                                    request = http::new_request();
-                                    request.parse_metadata(&request_data);
-                                    request.parse_headers(&request_data);
-                                    if (!request.check_version_and_header_host_compliant()) {
-                                        // HTTP/1.1 but dont have Host header
-                                        // TODO: send response with bad request
-                                        keep_reading_buffer = false;
-                                        should_close = true;
+                            if (read_size > 0) {
+                                DString payload = dstring::new_with_capacity(read_size);
+                                if (try payload.write(&buffer)) {
+                                    StringView request_data = sv::create_view(payload.str_view(), read_size);
+                                    if (request == null) {
+                                        request = http::new_request();
+                                        request.parse_metadata(&request_data);
+                                        request.parse_headers(&request_data);
+                                        if (!request.check_version_and_header_host_compliant()) {
+                                            router.send_bad_request(client, request);
+                                            read_buffer = false;
+                                            should_close_connection = true;
+                                        }
+                                    }
+                                    if (read_buffer) {
+                                        body.append_chars(request_data.to_string());
+                                        if (body.len() == 0 || body.str_view().ends_with("\r\n")) {
+                                            read_buffer = false;
+                                        }
                                     }
                                 }
-                                if (keep_reading_buffer) {
-                                    body.append_chars(request_data.to_string());
-                                    if (body.len() == 0 || body.copy_str().ends_with("\r\n")) {
-                                        keep_reading_buffer = false;
-                                    }
-                                }
+                                payload.free();
+                            } else {
+                                read_buffer = false;
                             }
                         } else {
                             io::printfn("failed to read from client");
                             if (catch r = client.close()) {
                                 io::printfn("failed to close client socket: %s", r);
                             }
-                            mem::free(args);
-                            return 1;
+                            should_close_connection = true;
+                            break;
                         }
 
                     }
@@ -162,36 +165,46 @@ fn int handle_client(void* arg) {
                     if (catch r = client.close()) {
                         io::printfn("failed to close client socket: %s", r);
                     }
-                    mem::free(args);
-                    return 1;
+                    should_close_connection = true;
+                    break;
                 } else {
                     io::printfn("poll error");
                     if (catch r = client.close()) {
                         io::printfn("failed to close client socket: %s", r);
                     }
-                    mem::free(args);
-                    return 1;
+                    should_close_connection = true;
+                    break;
                 }
             }
-
+        }
+        if (request == null) {
+            io::printfn("connection aborted");
+            break;
         }
 
-        request.parse_body(body);
-        router::handle_request(client, router, request);
-        http::free_request(request);
-
+        io::printfn("[%s] - %s", request.method, request.resource);
+        if (!request.parse_body(body)) {
+            router.send_bad_request(client, request);
+            http::free_request(request);
+            break;
+        }
+        router.handle_request(client, request);
         if (request.should_close_client()) {
-            should_close = true;
+            http::free_request(request);
+            break;
         }
 
+        read_buffer = true;
         body.clear();
     }
+    mem::free(args);
+    if (request) http::free_request(request);
+    body.free();
 
     if (catch reason = client.close()) {
         io::printfn("failed to close client socket: %s", reason);
     }
 
-    body.free();
     mem::free(args);
     return 0;
 }
