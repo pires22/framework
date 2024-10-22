@@ -62,9 +62,9 @@ fn bool match_route(String route_pattern, Request* request) {
     return true;
 }
 
-fn Route* router_match_route(Router* router, Request* req) {
-    for (usz i = 0; i < router.routes.len(); i++) {
-        foreach (Route* route : router.routes)
+fn Route* Router.router_match_route(&self, Request* req) {
+    for (usz i = 0; i < self.routes.len(); i++) {
+        foreach (Route* route : self.routes)
         {
             if (route.method == req.method && match_route(route.path, req)) {
                 return route;
@@ -74,15 +74,15 @@ fn Route* router_match_route(Router* router, Request* req) {
     return null;
 }
 
-fn void handle_request(TcpSocket client, Router* router, Request* req) {
-    Route* route = router_match_route(router, req);
+fn void Router.handle_request(&self, TcpSocket* client, Request* request) {
+    Route* route = self.router_match_route(request);
     if (route != null) {
-        Response* response = http::new_response(&client);
+        Response* response = http::new_response(client);
         response.status(200);
         if (route.handler == null) {
             response.status(404).send("Not found");
         } else {
-            if (catch exception = route.handler(req, response)) {
+            if (catch exception = route.handler(request, response)) {
                 response.status(500).send("Internal server error");
             }
             if (!response.sent) {
@@ -91,8 +91,14 @@ fn void handle_request(TcpSocket client, Router* router, Request* req) {
         }
         http::free_response(response);
     } else {
-        Response* response = http::new_response(&client);
+        Response* response = http::new_response(client);
         response.status(404).send("Not found");
         http::free_response(response);
     }
+}
+
+fn void Router.send_bad_request(&self, TcpSocket* client, Request* request) {
+    Response* response = http::new_response(client);
+    response.status(400).send("Bad request");
+    http::free_response(response);
 }
