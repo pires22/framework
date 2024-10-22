@@ -1,7 +1,5 @@
 module http;
 import std::io;
-import std::core::dstring;
-import std::core::string;
 import std::collections::list;
 import std::net::tcp;
 import std::collections::map;
@@ -18,6 +16,7 @@ struct Request {
     Map(<String, String>)* params;
     Map(<String, String>)* query_params;
     DString body;
+    bool should_close;
 }
 
 struct Response {
@@ -48,7 +47,7 @@ fn Response* new_response(TcpSocket* client) {
 }
 
 fn void Request.parse_resource(&self, String uri) {
-    DString resource = std::core::dstring::new(uri);
+    DString resource = dstring::new(uri);
     StringView resource_view = sv::create_view(resource.str_view(), resource.len());
     self.resource = resource_view.chop_by_delimiter('?').to_string().strip_end("/");
     if (resource_view.length > 0) {
@@ -58,7 +57,7 @@ fn void Request.parse_resource(&self, String uri) {
 
 fn String decode_url(String url) {
     StringIterator iter = url.iterator();
-    DString decoded_url = std::core::dstring::new();
+    DString decoded_url = dstring::new();
 
     while (try uint c = iter.next()) {
         if (c == '%') {
@@ -89,9 +88,9 @@ fn uint hex_value(uint c) {
 
 fn void Request.parse_metadata(&self, StringView* sv) {
     StringView metadata = sv.chop_by_delimiter('\n');
-    self.method = metadata.chop_by_delimiter(' ').to_string().copy();
-    self.parse_resource(decode_url(metadata.chop_by_delimiter(' ').to_string().copy()));
-    self.version = metadata.to_string().copy();
+    self.method = metadata.chop_by_delimiter(' ').to_string().copy().trim();
+    self.parse_resource(decode_url(metadata.chop_by_delimiter(' ').to_string().copy().trim()));
+    self.version = metadata.to_string().copy().trim();
 }
 
 fn void Request.parse_headers(&self, StringView* headers) {
@@ -109,28 +108,29 @@ fn void Request.parse_headers(&self, StringView* headers) {
     }
 }
 
-fn void Request.parse_body(&self, DString body) {
-    if (self.headers.has_key("transfer-encoding")) {
-        if (try transfer_encoding = self.headers.get("transfer-encoding")) {
-            if (transfer_encoding == "chunked") {
-                StringView body_sv = sv::create_view(body.str_view(), body.len());
-                body_sv.chop_by_delimiter('\n');
-                while (body_sv.length > 0) {
-                    StringView chunk_size_line = body_sv.chop_by_delimiter('\n');
-                    StringView chunk_size_str = chunk_size_line.chop_by_delimiter(';');
-                    StringView chunk = body_sv.chop_by_delimiter('\n');
-                    if (chunk_size_str.to_string().trim("\r") == "0" && chunk.to_string().trim() == "") {
-                        break;
-                    }
-                    self.body.append_chars(chunk.to_string().trim());
-                }
-            }
-        } else {
-            io::printfn("failed to get transfer encoding header");
-            // TODO: cancel request and close connection
-        }
-    } else {
+fn bool Request.parse_body(&self, DString body) {
+    if (!self.headers.has_key("transfer-encoding")) {
         self.body.append_chars(body.str_view());
+        return true;
+    }
+    if (try transfer_encoding = self.headers.get("transfer-encoding")) {
+        if (transfer_encoding == "chunked") {
+            StringView body_sv = sv::create_view(body.str_view(), body.len());
+            body_sv.chop_by_delimiter('\n');
+            while (body_sv.length > 0) {
+                StringView chunk_size_line = body_sv.chop_by_delimiter('\n');
+                StringView chunk_size_str = chunk_size_line.chop_by_delimiter(';');
+                StringView chunk = body_sv.chop_by_delimiter('\n');
+                if (chunk_size_str.to_string().trim("\r") == "0" && chunk.to_string().trim() == "") {
+                    break;
+                }
+                self.body.append_chars(chunk.to_string().trim());
+            }
+        }
+        return true;
+    } else {
+        io::printfn("failed to get transfer encoding header");
+        return false;
     }
 }
 
@@ -139,14 +139,18 @@ fn bool Request.should_close_client(&self) {
         if (try connection_header = self.headers.get("connection")) {
             if (connection_header == "close") {
                 return true;
+            } else {
+                return false;
             }
         }
         return false;
+    } else {
+        io::printn("version does not support keep-alive");
     }
     return true;
 }
 
-fn bool Request.check_version_and_header_host_compliant(&self) {
+fn bool Request.is_version_and_header_host_compliant(&self) {
     if (self.version == "HTTP/1.1") {
         if (try connection_header = self.headers.get("host")) {
             return true;
@@ -195,7 +199,9 @@ fn void Response.send(&self, String body = "") {
     self.make_response(body);
     DString data = assemble_response(self);
     if (self.client != null) {
-        self.client.write(data.str_view())!!;
+        if (catch reason = self.client.write(data.str_view())) {
+            io::printfn("%s", reason);
+        }
         data.free();
     }
     self.sent = true;
@@ -214,17 +220,18 @@ fn Response* Response.make_response(&self, String body) {
 
 fn DString assemble_response(Response* response) {
     DString status_code = uint_to_string(response.status_code);
-    DString response_data = std::core::dstring::new_join(String[]{response.version, status_code.str_view(), response.status_code_text}, " ");
+    DString response_data = dstring::new_join(String[]{response.version, status_code.str_view(), response.status_code_text}, " ");
     status_code.free();
     response_data.append_chars("\r\n");
     response.headers.@each_entry(; Entry(<String, String>)* entry) {
-        DString header_line = std::core::dstring::new_join(String[]{entry.key, entry.value}, ": ");
+        DString header_line = dstring::new_join(String[]{entry.key, entry.value}, ": ");
         header_line.append_chars("\r\n");
         response_data.append_string(header_line);
         header_line.free();
     };
     response_data.append_chars("\r\n");
     response_data.append_chars(response.body);
+    response_data.append_chars("\r\n");
     return response_data;
 }
 
@@ -262,7 +269,7 @@ fn DString uint_to_string(uint value) {
         buffer[i - j - 1] = temp;
     }
 
-    DString result = std::core::dstring::new_with_capacity(i + 1);
+    DString result = dstring::new_with_capacity(i + 1);
     for (usz k = 0; k < i; k++) {
         result.append_char(buffer[k]);
     }
