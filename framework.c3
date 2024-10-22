@@ -106,79 +106,78 @@ fn void sigint_handler(int sig_num)
     return;
 }
 
+fn void terminate(Request* request, TcpSocket* client, Router* router) {
+    router.send_bad_request(client, request);
+    close_client_socket(client);
+    http::free_request(request);
+}
+
 fn int handle_client(void* arg) {
     ClientArgs* args = (ClientArgs*)arg;
     Router* router = args.router;
     TcpSocket* client = args.client;
     char[1024] buffer;
-    DString body = dstring::new();
     bool read_buffer = true;
     bool should_close_connection = false;
+    Poll[4] poll_set;
+    poll_set[0].socket = client.sock;
+    poll_set[0].events = std::net::SUBSCRIBE_ANY_READ;
 
     while(!should_close_connection) {
         Request* request = null;
-        Poll[4] poll_set;
-        poll_set[0].socket = client.sock;
-        poll_set[0].events = std::net::SUBSCRIBE_ANY_READ;
+        DString body = dstring::new();
+        DString payload = dstring::new();
         while (read_buffer) {
             if (try poll_result = std::net::poll_ms(&poll_set, 30000)) {
                 if (poll_result > 0) {
                     if (poll_set[0].revents & std::net::os::POLLIN) {
                         if (try usz read_size = client.read(&buffer)) {
-                            if (read_size > 0) {
-                                DString payload = dstring::new_with_capacity(read_size);
-                                if (try payload.write(&buffer)) {
-                                    StringView request_data = sv::create_view(payload.str_view(), read_size);
-                                    if (request == null) {
-                                        request = http::new_request();
-                                        request.parse_metadata(&request_data);
-                                        request.parse_headers(&request_data);
-                                        if (!request.check_version_and_header_host_compliant()) {
-                                            router.send_bad_request(client, request);
-                                            read_buffer = false;
-                                            should_close_connection = true;
-                                        }
+                            if (try payload.write(&buffer)) {
+                                io::printfn("buffer: %s", payload.str_view());
+                                StringView request_data = sv::create_view(payload.str_view(), read_size);
+                                if (request == null) {
+                                    request = http::new_request();
+                                    if (!request.parse_metadata(&request_data)) {
+                                        terminate(request, client, router);
+                                        return 0;
                                     }
-                                    if (read_buffer) {
-                                        body.append_chars(request_data.to_string());
-                                        if (body.len() == 0 || body.str_view().ends_with("\r\n")) {
-                                            read_buffer = false;
-                                        }
+                                    if (!request.parse_headers(&request_data)) {
+                                        terminate(request, client, router);
+                                        return 0;
+                                    }
+                                    if (!request.is_version_and_header_host_compliant()) {
+                                        terminate(request, client, router);
+                                        return 0;
                                     }
                                 }
-                                payload.free();
-                            } else {
-                                read_buffer = false;
+                                if (read_buffer) {
+                                    body.append_chars(request_data.to_string());
+                                    if (body.len() == 0 || body.str_view().ends_with("\r\n")) {
+                                        read_buffer = false;
+                                    }
+                                }
                             }
+                            payload.clear();
                         } else {
-                            io::printfn("failed to read from client");
-                            if (catch r = client.close()) {
-                                io::printfn("failed to close client socket: %s", r);
-                            }
-                            should_close_connection = true;
+                            io::printn("failed to read from client");
+                            close_client_socket(client);
                             break;
                         }
 
                     }
                 } else if (poll_result == 0) {
-                    io::printfn("timeout, closing socket");
-                    if (catch r = client.close()) {
-                        io::printfn("failed to close client socket: %s", r);
-                    }
-                    should_close_connection = true;
+                    io::printn("timeout, closing socket");
+                    close_client_socket(client);
                     break;
                 } else {
-                    io::printfn("poll error");
-                    if (catch r = client.close()) {
-                        io::printfn("failed to close client socket: %s", r);
-                    }
-                    should_close_connection = true;
+                    io::printn("poll error");
+                    close_client_socket(client);
                     break;
                 }
             }
         }
         if (request == null) {
-            io::printfn("connection aborted");
+            io::printn("connection aborted");
             break;
         }
 
@@ -198,13 +197,12 @@ fn int handle_client(void* arg) {
         body.clear();
     }
     mem::free(args);
-    if (request) http::free_request(request);
-    body.free();
+    close_client_socket(client);
+    return 0;
+}
 
+fn void close_client_socket(TcpSocket* client) {
     if (catch reason = client.close()) {
         io::printfn("failed to close client socket: %s", reason);
     }
-
-    mem::free(args);
-    return 0;
 }
