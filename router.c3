@@ -23,7 +23,7 @@ fn Router* new_router() {
 
 fn void Router.add_route(&self, String method, String path, Handler handler) {
     if (method == "") {
-		io::printfn("method must not be empty");
+		io::printn("method must not be empty");
         return;
 	}
 	if (path.len < 1 || path[0] != '/') {
@@ -31,7 +31,7 @@ fn void Router.add_route(&self, String method, String path, Handler handler) {
         return;
 	}
 	if (handler == null) {
-		io::printfn("handler must not be nil");
+		io::printn("handler must not be nil");
         return;
 	}
 
