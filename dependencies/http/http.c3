@@ -24,7 +24,6 @@ struct Response {
     bool sent;
     String version;
     uint status_code;
-    String status_code_text;
     Map(<String, String>)* headers;
     String body;
 }
@@ -223,14 +222,14 @@ fn Response* Response.status(&self, uint status) {
 }
 
 fn Response* Response.make_response(&self, String body) {
-    self.version = "HTTP/1.0";
+    self.version = "HTTP/1.1";
     self.body = body;
     return self;
 }
 
 fn DString assemble_response(Response* response) {
     DString status_code = uint_to_string(response.status_code);
-    DString response_data = dstring::new_join(String[]{response.version, status_code.str_view(), response.status_code_text}, " ");
+    DString response_data = dstring::new_join(String[]{response.version, status_code.str_view()}, " ");
     status_code.free();
     response_data.append_chars("\r\n");
     response.headers.@each_entry(; Entry(<String, String>)* entry) {
