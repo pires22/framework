@@ -86,14 +86,23 @@ fn uint hex_value(uint c) {
     return 0;
 }
 
-fn void Request.parse_metadata(&self, StringView* sv) {
+fn bool Request.parse_metadata(&self, StringView* sv) {
     StringView metadata = sv.chop_by_delimiter('\n');
     self.method = metadata.chop_by_delimiter(' ').to_string().copy().trim();
     self.parse_resource(decode_url(metadata.chop_by_delimiter(' ').to_string().copy().trim()));
     self.version = metadata.to_string().copy().trim();
+    if (self.method == "" || self.resource == "" || self.version == "") {
+        return false;
+    }
+    return true;
 }
 
-fn void Request.parse_headers(&self, StringView* headers) {
+fn bool Request.parse_headers(&self, StringView* headers) {
+    if (headers.length > 0) {
+        if (!headers.to_string().ends_with("\r\n\r\n")) {
+            return false;
+        }
+    }
     while(headers.length > 0) {
         StringView data = headers.chop_by_delimiter('\n');
         if (data.to_string() == "\r") {
@@ -106,6 +115,7 @@ fn void Request.parse_headers(&self, StringView* headers) {
             self.headers.set(header_name.new_ascii_to_lower(), header_value);
         }
     }
+    return true;
 }
 
 fn bool Request.parse_body(&self, DString body) {
@@ -129,7 +139,7 @@ fn bool Request.parse_body(&self, DString body) {
         }
         return true;
     } else {
-        io::printfn("failed to get transfer encoding header");
+        io::printn("failed to get transfer encoding header");
         return false;
     }
 }
