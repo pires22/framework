@@ -11,8 +11,6 @@ import sv;
 bool keepRunning = true;
 TcpServerSocket! server_socket;
 
-def PathHandler = fn void (Framework* app);
-
 struct ClientArgs {
     Router* router;
     TcpSocket* client;
